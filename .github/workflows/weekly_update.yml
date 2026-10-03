@@ -1,0 +1,75 @@
+name: Weekly data refresh + iOS build
+
+on:
+  workflow_dispatch:  
+  schedule:
+    # Cron job runs every Wednesday @ 1pm
+    - cron: '0 13 * * 3'
+
+permissions:
+  contents: write 
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    outputs:
+      db_changed: ${{ steps.commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install nfl_data_py --no-deps
+          pip install pandas numpy pyarrow appdirs fastparquet requests
+
+      - name: Rebuild database
+        run: python build_fantasy_db.py --start-year 2022
+
+      - name: Commit updated database if changed
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/db/fantasy_stats.db
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Weekly data refresh: $(date -u +'%Y-%m-%d')"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-ios:
+    needs: update-data
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main   
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package into unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r fantasy_stats_unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fantasy_stats_unsigned_ipa
+          path: fantasy_stats_unsigned.ipa

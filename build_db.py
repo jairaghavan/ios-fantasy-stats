@@ -1,28 +1,9 @@
 """
-build_fantasy_db.py
-
-Pulls NFL player weekly stats, rosters, and schedules from nflverse and
-writes them into a SQLite database matching the Flutter app's schema
+Pulls NFL player weekly stats, rosters, and schedules from nflverse 
+https://github.com/nflverse/nflverse-data/releases,
+reads directly from the release parquet files,
+and writes them into a SQLite database matching the Flutter app's schema
 (players / games / player_game_stats).
-
-Run this on your dev machine (not on the phone) whenever you want to refresh
-the data. The output file gets copied into assets/db/fantasy_stats.db in your
-Flutter project and bundled at build time.
-
-NOTE ON DATA SOURCE: this script reads directly from nflverse's GitHub
-release parquet files rather than going through the nfl_data_py package.
-nfl_data_py was archived by its maintainer in Sep 2025 and nflverse changed
-its release format shortly after (the old "player_stats" release was
-deprecated 2025-08-01 in favor of "stats_player"/"stats_team", with
-per-season files instead of one-file-per-year under the old naming). Reading
-the parquet files directly avoids depending on an unmaintained wrapper.
-Rosters and schedules still go through nfl_data_py since those importers
-still work correctly.
-
-If this breaks again in the future, check:
-https://github.com/nflverse/nflverse-data/releases for current release tags
-and file names -- nflverse tends to announce format changes in nflreadr's
-changelog before nfl_data_py catches up (if it ever does, given it's archived).
 
 Setup:
     pip install nfl_data_py
@@ -40,9 +21,20 @@ Usage:
 import argparse
 import os
 import sqlite3
-
+from datetime import datetime, timezone
 import pandas as pd
 import nfl_data_py as nfl
+
+
+def current_season_year():
+    """
+    NFL seasons are labeled by the year they start in (e.g. games played in
+    Jan/Feb 2027 belong to the "2026 season"). This lets --end-year default
+    to "whatever season is currently relevant" so scheduled runs never need
+    a manual yearly bump.
+    """
+    now = datetime.now(timezone.utc)
+    return now.year - 1 if now.month <= 2 else now.year
 
 STATS_URL_TEMPLATE = (
     "https://github.com/nflverse/nflverse-data/releases/download/"
@@ -53,8 +45,7 @@ STATS_URL_TEMPLATE = (
 # Kickers (K) are intentionally excluded: nflverse precomputes their fantasy
 # points correctly, but this schema has no field-goal/extra-point columns,
 # so their game log would show all zeros. Add FG/XP columns first if you
-# want to bring kickers in. IDP formats would need a similar schema
-# extension for defensive stat columns (tackles, sacks, INTs by a defender).
+# want to bring kickers in.
 ALLOWED_POSITIONS = ("QB", "RB", "WR", "TE")
 
 SCHEMA = """
@@ -180,9 +171,9 @@ def build_stats_table(conn, years):
         "rec_td": col("receiving_tds"),
         "fumbles_lost": col("fumbles_lost_total"),
         "two_pt_conversions": (
-                col("passing_2pt_conversions")
-                + col("rushing_2pt_conversions")
-                + col("receiving_2pt_conversions")
+            col("passing_2pt_conversions")
+            + col("rushing_2pt_conversions")
+            + col("receiving_2pt_conversions")
         ),
         "fantasy_pts_std": weekly["fantasy_points"],
         "fantasy_pts_ppr": weekly["fantasy_points_ppr"],
@@ -203,7 +194,7 @@ def build_stats_table(conn, years):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-year", type=int, default=2022)
-    parser.add_argument("--end-year", type=int, default=2025)
+    parser.add_argument("--end-year", type=int, default=current_season_year())
     parser.add_argument("--out", default="assets/db/fantasy_stats.db")
     args = parser.parse_args()
 
