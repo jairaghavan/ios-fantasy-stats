@@ -1,7 +1,9 @@
 name: Weekly data refresh + iOS build
 
 on:
-  workflow_dispatch:  
+  workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     # Cron job runs every Wednesday @ 1pm
     - cron: '0 13 * * 3'
