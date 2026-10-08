@@ -27,7 +27,7 @@ jobs:
           pip install pandas numpy pyarrow appdirs fastparquet requests
 
       - name: Rebuild database
-        run: python build_fantasy_db.py --start-year 2022
+        run: python build_db.py --start-year 2022
 
       - name: Commit updated database if changed
         id: commit
